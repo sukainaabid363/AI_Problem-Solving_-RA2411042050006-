@@ -1,5 +1,5 @@
-Course:** Artificial Intelligence
-**Repository:** AI_ProblemSolving_-RA2411042050006
+Course: Artificial Intelligence
+Repository: AI_ProblemSolving_-RA2411042050006
 Problem 6 — Sudoku Solver (CSP)
 ### Problem Description
 Sudoku is a logic-based number placement puzzle played on a 9×9 grid. Some cells are pre-filled, and the objective is to fill the remaining cells so that every row, column, and 3×3 subgrid contains the digits 1–9 without repetition.
