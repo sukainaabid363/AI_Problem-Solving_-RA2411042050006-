@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sudoku Solver — CSP</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050a0f;
+    --panel: #0b1622;
+    --border: #1a3a5c;
+    --accent: #00d4ff;
+    --accent2: #ff4d6d;
+    --accent3: #39ff14;
+    --warn: #ffd166;
+    --text: #c8e6f5;
+    --dim: #4a7a9b;
+    --glow: 0 0 20px #00d4ff55;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+    gap: 1.5rem;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, #001a2e 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, #0a0015 0%, transparent 50%);
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px,
+      rgba(0,212,255,0.01) 2px, rgba(0,212,255,0.01) 4px);
+    pointer-events: none; z-index: 1000;
+  }
+
+  h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(1.4rem, 4vw, 2.2rem);
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-shadow: 0 0 30px var(--accent), 0 0 60px #00d4ff44;
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 0.7rem;
+    color: var(--dim);
+    letter-spacing: 0.15em;
+    text-align: center;
+    margin-top: -0.8rem;
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: auto 260px;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 900px;
+    align-items: start;
+  }
+
+  @media(max-width:680px) { .main { grid-template-columns: 1fr; } }
+
+  /* GRID */
+  .grid-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .sudoku-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 2px;
+    background: #1a3a5c;
+    border: 3px solid var(--accent);
+    box-shadow: var(--glow), inset 0 0 30px #00d4ff0a;
+    width: min(90vw, 460px);
+    height: min(90vw, 460px);
+  }
+
+  .cell {
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(0.9rem, 2.5vw, 1.3rem);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+    user-select: none;
+  }
+
+  /* 3x3 box borders */
+  .cell[data-col="2"], .cell[data-col="5"] { border-right: 2px solid var(--accent); }
+  .cell[data-row="2"], .cell[data-row="5"] { border-bottom: 2px solid var(--accent); }
+
+  .cell.prefilled {
+    color: var(--accent);
+    background: #040e1a;
+    cursor: default;
+  }
+
+  .cell.user-filled {
+    color: var(--accent3);
+    cursor: pointer;
+  }
+
+  .cell.solved-filled {
+    color: var(--accent3);
+    background: #04140a;
+    animation: fadeIn 0.3s ease;
+    cursor: default;
+  }
+
+  .cell.selected {
+    background: #071824;
+    box-shadow: inset 0 0 15px #00d4ff22;
+    outline: 2px solid var(--accent);
+  }
+
+  .cell.conflict {
+    background: #1a0408;
+    color: var(--accent2) !important;
+    animation: shake 0.3s ease;
+  }
+
+  .cell.hint-cell {
+    background: #0a1a04;
+    color: var(--accent3) !important;
+    box-shadow: inset 0 0 10px #39ff1422;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.5); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+
+  /* NUMBER PAD */
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    width: min(90vw, 460px);
+  }
+
+  .num-btn {
+    padding: 0.5rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Orbitron', monospace;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+
+  .num-btn:hover { border-color: var(--accent3); color: var(--accent3); background: #060f18; }
+  .num-btn.erase { color: var(--accent2); border-color: #3a1020; font-size: 0.7rem; }
+  .num-btn.erase:hover { border-color: var(--accent2); background: #120408; }
+
+  /* STATUS */
+  .status-bar {
+    width: min(90vw, 460px);
+    padding: 0.6rem 1rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-align: center;
+    letter-spacing: 0.1em;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .status-bar::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scan 3s linear infinite;
+  }
+
+  @keyframes scan { to { left: 100%; } }
+
+  /* RIGHT PANEL */
+  .right { display: flex; flex-direction: column; gap: 1rem; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    position: relative;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 30px; height: 2px;
+    background: var(--accent);
+  }
+
+  .card-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-bottom: 0.8rem;
+    padding-top: 0.3rem;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 0.6rem;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: 'Orbitron', monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+
+  .btn:hover { background: var(--accent); color: var(--bg); box-shadow: var(--glow); }
+  .btn.green { border-color: var(--accent3); color: var(--accent3); }
+  .btn.green:hover { background: var(--accent3); color: var(--bg); }
+  .btn.warn { border-color: var(--warn); color: var(--warn); }
+  .btn.warn:hover { background: var(--warn); color: var(--bg); }
+  .btn.red { border-color: var(--accent2); color: var(--accent2); }
+  .btn.red:hover { background: var(--accent2); color: white; }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #0d1f2e;
+  }
+  .stat-row:last-child { border: none; }
+  .stat-row .lbl { color: var(--dim); }
+  .stat-row .val { color: var(--accent3); }
+
+  select {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    background: #060f18;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    outline: none;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Overlay */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 999;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .overlay.show { opacity: 1; pointer-events: all; }
+  .overlay-card {
+    background: var(--panel);
+    border: 1px solid var(--accent3);
+    box-shadow: 0 0 40px #39ff1444;
+    padding: 2.5rem 3rem;
+    text-align: center;
+    animation: popIn 0.3s ease;
+  }
+  @keyframes popIn {
+    from { transform: scale(0.8); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+  .overlay-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 2rem; font-weight: 900;
+    color: var(--accent3);
+    text-shadow: 0 0 30px var(--accent3);
+    margin-bottom: 0.5rem;
+  }
+  .overlay-sub { color: var(--dim); font-size: 0.8rem; margin-bottom: 1.5rem; }
+</style>
+</head>
+<body>
+
+<h1>SUDOKU SOLVER</h1>
+
+<div class="main">
+  <!-- LEFT: GRID -->
+  <div class="grid-wrap">
+    <div class="status-bar" id="statusBar">► SELECT A CELL AND ENTER A NUMBER</div>
+    <div class="sudoku-grid" id="sudokuGrid"></div>
+    <div class="numpad" id="numpad"></div>
+  </div>
+
+  <!-- RIGHT: CONTROLS -->
+  <div class="right">
+
+    <div class="card">
+      <div class="card-title">● Puzzle</div>
+      <select id="puzzleSelect" onchange="loadPuzzle()">
+        <option value="easy1">Easy — Puzzle 1</option>
+        <option value="easy2">Easy — Puzzle 2</option>
+        <option value="easy3">Easy — Puzzle 3</option>
+      </select>
+      <button class="btn green" onclick="solvePuzzle()">▶ Auto Solve (CSP)</button>
+      <button class="btn warn" onclick="getHint()">💡 Hint</button>
+      <button class="btn" onclick="checkSolution()">✔ Check My Answer</button>
+      <button class="btn red" onclick="loadPuzzle()">↺ Reset Puzzle</button>
+    </div>
+
+
+
+  </div>
+</div>
+
+<!-- Win Overlay -->
+<div class="overlay" id="overlay">
+  <div class="overlay-card">
+    <div class="overlay-title">YOU WIN!</div>
+    <div class="overlay-sub">Puzzle solved correctly!</div>
+    <button class="btn green" onclick="closeOverlay()">► Next Puzzle</button>
+  </div>
+</div>
+
+<script>
+// ─── PUZZLES ──────────────────────────────────────────────────────────
+// 0 = empty
+const PUZZLES = {
+  easy1: [
+    5,3,0, 0,7,0, 0,0,0,
+    6,0,0, 1,9,5, 0,0,0,
+    0,9,8, 0,0,0, 0,6,0,
+
+    8,0,0, 0,6,0, 0,0,3,
+    4,0,0, 8,0,3, 0,0,1,
+    7,0,0, 0,2,0, 0,0,6,
+
+    0,6,0, 0,0,0, 2,8,0,
+    0,0,0, 4,1,9, 0,0,5,
+    0,0,0, 0,8,0, 0,7,9,
+  ],
+  easy2: [
+    0,0,3, 0,2,0, 6,0,0,
+    9,0,0, 3,0,5, 0,0,1,
+    0,0,1, 8,0,6, 4,0,0,
+
+    0,0,8, 1,0,2, 9,0,0,
+    7,0,0, 0,0,0, 0,0,8,
+    0,0,6, 7,0,8, 2,0,0,
+
+    0,0,2, 6,0,9, 5,0,0,
+    8,0,0, 2,0,3, 0,0,9,
+    0,0,5, 0,1,0, 3,0,0,
+  ],
+  easy3: [
+    0,2,0, 6,0,8, 0,0,0,
+    5,8,0, 0,0,9, 7,0,0,
+    0,0,0, 0,4,0, 0,0,0,
+
+    3,7,0, 0,0,0, 5,0,0,
+    6,0,0, 0,0,0, 0,0,4,
+    0,0,8, 0,0,0, 0,1,3,
+
+    0,0,0, 0,2,0, 0,0,0,
+    0,0,9, 8,0,0, 0,3,6,
+    0,0,0, 3,0,6, 0,9,0,
+  ]
+};
+
+let puzzle = [];      // original prefilled
+let board = [];       // current state
+let solvedBoard = []; // CSP solution
+let selectedCell = null;
+let backtracks = 0;
+
+// ─── LOAD PUZZLE ──────────────────────────────────────────────────────
+function loadPuzzle() {
+  const key = document.getElementById('puzzleSelect').value;
+  puzzle = [...PUZZLES[key]];
+  board = [...puzzle];
+  solvedBoard = [];
+  selectedCell = null;
+  backtracks = 0;
+  document.getElementById('overlay').classList.remove('show');
+  renderGrid();
+  updateStats();
+  setStatus('► SELECT A CELL AND ENTER A NUMBER');
+}
+
+// ─── RENDER GRID ──────────────────────────────────────────────────────
+function renderGrid() {
+  const grid = document.getElementById('sudokuGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 81; i++) {
+    const row = Math.floor(i / 9);
+    const col = i % 9;
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.idx = i;
+    cell.dataset.row = row;
+    cell.dataset.col = col;
+
+    if (puzzle[i] !== 0) {
+      cell.classList.add('prefilled');
+      cell.textContent = puzzle[i];
+    } else if (board[i] !== 0) {
+      if (solvedBoard.length && board[i] === solvedBoard[i]) {
+        cell.classList.add('solved-filled');
+      } else {
+        cell.classList.add('user-filled');
+      }
+      cell.textContent = board[i];
+    }
+
+    if (selectedCell === i && puzzle[i] === 0) cell.classList.add('selected');
+
+    cell.addEventListener('click', () => {
+      if (puzzle[i] !== 0) return;
+      selectedCell = i;
+      renderGrid();
+    });
+
+    grid.appendChild(cell);
+  }
+  highlightConflicts();
+  updateStats();
+}
+
+function highlightConflicts() {
+  const cells = document.querySelectorAll('.cell');
+  cells.forEach(c => c.classList.remove('conflict'));
+  for (let i = 0; i < 81; i++) {
+    if (board[i] === 0) continue;
+    const row = Math.floor(i / 9), col = i % 9;
+    for (let j = 0; j < 81; j++) {
+      if (j === i || board[j] !== board[i]) continue;
+      const r2 = Math.floor(j/9), c2 = j%9;
+      const sameRow = r2 === row;
+      const sameCol = c2 === col;
+      const sameBox = Math.floor(r2/3)===Math.floor(row/3) && Math.floor(c2/3)===Math.floor(col/3);
+      if (sameRow || sameCol || sameBox) {
+        cells[i].classList.add('conflict');
+        cells[j].classList.add('conflict');
+      }
+    }
+  }
+}
+
+// ─── NUMPAD ───────────────────────────────────────────────────────────
+function buildNumpad() {
+  const pad = document.getElementById('numpad');
+  for (let n = 1; n <= 9; n++) {
+    const btn = document.createElement('button');
+    btn.className = 'num-btn';
+    btn.textContent = n;
+    btn.onclick = () => enterNumber(n);
+    pad.appendChild(btn);
+  }
+  const erase = document.createElement('button');
+  erase.className = 'num-btn erase';
+  erase.textContent = 'ERASE';
+  erase.onclick = () => enterNumber(0);
+  pad.appendChild(erase);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '9') enterNumber(parseInt(e.key));
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') enterNumber(0);
+  // Arrow navigation
+  if (selectedCell !== null) {
+    if (e.key === 'ArrowRight' && selectedCell % 9 < 8) selectedCell++;
+    if (e.key === 'ArrowLeft'  && selectedCell % 9 > 0) selectedCell--;
+    if (e.key === 'ArrowDown'  && selectedCell < 72) selectedCell += 9;
+    if (e.key === 'ArrowUp'    && selectedCell >= 9) selectedCell -= 9;
+    renderGrid();
+  }
+});
+
+function enterNumber(n) {
+  if (selectedCell === null) return;
+  if (puzzle[selectedCell] !== 0) return;
+  board[selectedCell] = n;
+  renderGrid();
+  if (isBoardComplete()) {
+    if (isBoardCorrect()) showWin();
+    else setStatus('⚠ Some cells are incorrect — check conflicts!');
+  }
+}
+
+// ─── CSP SOLVER ───────────────────────────────────────────────────────
+function isValid(b, idx, val) {
+  const row = Math.floor(idx / 9), col = idx % 9;
+  for (let c = 0; c < 9; c++) if (b[row*9+c] === val) return false;
+  for (let r = 0; r < 9; r++) if (b[r*9+col] === val) return false;
+  const br = Math.floor(row/3)*3, bc = Math.floor(col/3)*3;
+  for (let r = br; r < br+3; r++)
+    for (let c = bc; c < bc+3; c++)
+      if (b[r*9+c] === val) return false;
+  return true;
+}
+
+function solve(b) {
+  const idx = b.indexOf(0);
+  if (idx === -1) return true;
+  for (let v = 1; v <= 9; v++) {
+    if (isValid(b, idx, v)) {
+      b[idx] = v;
+      if (solve(b)) return true;
+      b[idx] = 0;
+      backtracks++;
+    }
+  }
+  return false;
+}
+
+function solvePuzzle() {
+  backtracks = 0;
+  const b = [...puzzle];
+  if (solve(b)) {
+    solvedBoard = [...b];
+    board = [...b];
+    renderGrid();
+    setStatus('✔ SOLVED BY CSP BACKTRACKING!');
+    document.getElementById('statBacktracks').textContent = backtracks;
+  } else {
+    setStatus('✕ No solution found.');
+  }
+}
+
+// ─── HINT ─────────────────────────────────────────────────────────────
+function getHint() {
+  // Solve silently first
+  if (!solvedBoard.length) {
+    const b = [...puzzle];
+    if (!solve(b)) { setStatus('✕ Cannot generate hint — no solution.'); return; }
+    solvedBoard = [...b];
+  }
+  // Find first empty cell and reveal it
+  const empties = [];
+  for (let i = 0; i < 81; i++) if (puzzle[i] === 0 && board[i] === 0) empties.push(i);
+  if (empties.length === 0) { setStatus('► All cells are filled!'); return; }
+  const pick = empties[Math.floor(Math.random() * empties.length)];
+  board[pick] = solvedBoard[pick];
+  // Flash hint
+  renderGrid();
+  const cells = document.querySelectorAll('.cell');
+  cells[pick].classList.add('hint-cell');
+  setStatus(`💡 HINT: Cell (Row ${Math.floor(pick/9)+1}, Col ${pick%9+1}) = ${solvedBoard[pick]}`);
+}
+
+// ─── CHECK ────────────────────────────────────────────────────────────
+function checkSolution() {
+  if (!isBoardComplete()) {
+    setStatus('⚠ Puzzle is not complete yet!');
+    return;
+  }
+  if (isBoardCorrect()) showWin();
+  else setStatus('✕ Some cells are incorrect. Check highlighted conflicts!');
+}
+
+function isBoardComplete() { return board.every(v => v !== 0); }
+
+function isBoardCorrect() {
+  if (!solvedBoard.length) {
+    const b = [...puzzle];
+    if (!solve(b)) return false;
+    solvedBoard = [...b];
+  }
+  return board.every((v, i) => v === solvedBoard[i]);
+}
+
+// ─── STATS ────────────────────────────────────────────────────────────
+function updateStats() {
+  const filled = board.filter(v => v !== 0).length;
+  const precount = puzzle.filter(v => v !== 0).length;
+  document.getElementById('statFilled').textContent = filled + ' / 81';
+  document.getElementById('statRemaining').textContent = (81 - filled) + ' cells';
+  if (backtracks > 0) document.getElementById('statBacktracks').textContent = backtracks;
+}
+
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+function showWin() {
+  setStatus('✔ CONGRATULATIONS! PUZZLE SOLVED!');
+  setTimeout(() => document.getElementById('overlay').classList.add('show'), 500);
+}
+
+function closeOverlay() {
+  document.getElementById('overlay').classList.remove('show');
+  // Load next puzzle
+  const sel = document.getElementById('puzzleSelect');
+  const opts = sel.options;
+  sel.selectedIndex = (sel.selectedIndex + 1) % opts.length;
+  loadPuzzle();
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────
+buildNumpad();
+loadPuzzle();
+</script>
+</body>
+</html>
